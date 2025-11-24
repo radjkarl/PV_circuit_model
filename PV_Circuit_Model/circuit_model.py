@@ -385,6 +385,7 @@ class ReverseDiode(Diode):
 class CircuitGroup(CircuitComponent):
     def __init__(self,subgroups,connection="series",name=None,location=None,
                  rotation=0,x_mirror=1,y_mirror=1,extent=None):
+        registerClass(self.__class__)
         self.connection = connection
         self.subgroups = subgroups
         for element in self.subgroups:
