@@ -193,7 +193,7 @@ class Cell(CircuitGroup):
                   temperature=params["temperature"],
                   Suns=params["Suns"])
         out.aux = params["aux"]
-        if "DegradationMode" in params["aux"]:
+        if "degradation_mode" in params["aux"]:
             degradation_class = ALL_ELEMENTS["DegradationMode"]
             out.aux["degradation_mode"] = degradation_class.Restore_fromParams(out.aux["degradation_mode"])
         out.degradation_I_internal_V_tables = params["degradation_I_internal_V_tables"]

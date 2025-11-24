@@ -31,7 +31,12 @@ class CircuitComponent:
         self.circuit_diagram_extent = [0, 0.8]
         self.parent = None
         self.aux = {}
-        registerClass(self.__class__)
+
+
+    #register all child elements
+    def __init_subclass__(cls):
+        super().__init_subclass__()
+        registerClass(cls)
 
     def null_IV(self, keep_dark=False):
         self.refined_IV = False
@@ -385,7 +390,6 @@ class ReverseDiode(Diode):
 class CircuitGroup(CircuitComponent):
     def __init__(self,subgroups,connection="series",name=None,location=None,
                  rotation=0,x_mirror=1,y_mirror=1,extent=None):
-        registerClass(self.__class__)
         self.connection = connection
         self.subgroups = subgroups
         for element in self.subgroups:
