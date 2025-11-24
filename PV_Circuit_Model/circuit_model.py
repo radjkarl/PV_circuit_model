@@ -17,7 +17,13 @@ def get_VT(temperature):
 
 def get_ni(temperature):
     return 9.15e19*((temperature+273.15)/300)**2*np.exp(-6880/(temperature+273.15))
-    
+
+# this is needed to get class from string in Restore_fromParam() functions
+ALL_ELEMENTS = {}
+def registerClass(cls):
+    ALL_ELEMENTS[cls.__name__] = cls
+
+
 class CircuitComponent:
     def __init__(self,tag=None):
         self.IV_table = None
@@ -25,6 +31,8 @@ class CircuitComponent:
         self.circuit_diagram_extent = [0, 0.8]
         self.parent = None
         self.aux = {}
+        registerClass(self.__class__)
+
     def null_IV(self, keep_dark=False):
         self.refined_IV = False
         if hasattr(self,"IV_parameters"):
@@ -99,6 +107,32 @@ class CurrentSource(CircuitElement):
         self.T = temperature
         self.temp_coeff = temp_coeff
 
+    def save_toParams(self):
+        return {
+            "refSuns": self.refSuns,
+            "Suns": self.Suns,
+            "refIL": self.refIL,
+            "refT": self.refT,
+            "T": self.T,
+            "temp_coeff": self.temp_coeff,
+            "IL": self.IL,
+            "tag": self.tag
+        }
+
+    @classmethod
+    def Restore_fromParams(cls, params):
+        out = cls(
+            IL=params["IL"],
+            Suns=params["Suns"],
+            temperature=params["T"],
+            temp_coeff=params["temp_coeff"],
+            tag=params["tag"])
+        out.refSuns = params["refSuns"]
+        out.refIL = params["refIL"]
+        out.refT = params["refT"]
+        return out
+
+
     def calc_I(self,V):
         if isinstance(V,numbers.Number):
             return -self.IL
@@ -159,6 +193,16 @@ class Resistor(CircuitElement):
     def __init__(self, cond=1, tag=None):
         super().__init__(tag=tag)
         self.cond = cond
+
+    def save_toParams(self):
+        return {
+            "cond": self.cond
+        }
+
+    @classmethod
+    def Restore_fromParams(cls, params):
+        return cls(params["cond"])
+
     def calc_I(self,V):
         return V*self.cond
     def calc_dI_dV(self,V):
@@ -190,14 +234,31 @@ class Resistor(CircuitElement):
         return draw_resistor_symbol
 
 class Diode(CircuitElement):
-    def __init__(self,I0=1e-15,n=1,V_shift=0,tag=None,temperature=25): #V_shift is to shift the starting voltage, e.g. to define breakdown
+    def __init__(self,I0=1e-15,n=1,V_shift=0,tag=None,temperature=25,
+                 VT=None, refI0=None): #V_shift is to shift the starting voltage, e.g. to define breakdown
         super().__init__(tag=tag)
         self.I0 = I0
         self.n = n
         self.V_shift = V_shift
-        self.VT = get_VT(temperature)
-        self.refI0 = I0
+        self.VT = get_VT(temperature) if VT is None else VT
+        self.refI0 = I0 if refI0 is None else refI0
         self.refT = temperature
+
+    def save_toParams(self):
+        return {
+            "I0": self.I0,
+            "n": self.n,
+            "V_shift": self.V_shift,
+            "VT": self.VT,
+            "refI0": self.refI0,
+            "temperature": self.refT,
+            "tag": self.tag
+        }
+
+    @classmethod
+    def Restore_fromParams(cls, params):
+        return cls(**params)
+
 
     def set_I0(self,I0):
         self.I0 = I0
@@ -250,6 +311,22 @@ class ForwardDiode(Diode):
     def __init__(self,I0=1e-15,n=1,tag=None): #V_shift is to shift the starting voltage, e.g. to define breakdown
         super().__init__(I0, n, V_shift=0,tag=tag)
         self.max_I = 0.2
+
+    def save_toParams(self):
+        return {
+            **super().save_toParams(), #TODO: not all parameters are restored - which ones are needed?
+            "max_I": self.max_I
+        }
+
+    @classmethod
+    def Restore_fromParams(cls, params):
+        out = cls(
+            I0=params["I0"],
+            n=params["n"],
+            tag=params["tag"])
+        out.max_I = params["max_I"]
+        return out
+
     def build_IV(self, V=None, max_num_points=100, *args, **kwargs):
         super().build_IV(V,max_num_points)
     def __str__(self):
@@ -270,8 +347,21 @@ class PhotonCouplingDiode(ForwardDiode):
         return "Photon Coupling Diode: I0 = " + str(self.I0) + "A, n = " + str(self.n)
 
 class ReverseDiode(Diode):
-    def __init__(self,I0=1e-15,n=1, V_shift=0,tag=None): #V_shift is to shift the starting voltage, e.g. to define breakdown
+    def __init__(self,I0=1e-15, n=1, V_shift=0, tag=None): #V_shift is to shift the starting voltage, e.g. to define breakdown
         super().__init__(I0, n, V_shift, tag=tag)
+
+    def save_toParams(self):
+        return {
+            "I0": self.I0,
+            "n": self.n,
+            "V_shift": self.V_shift,
+            "tag": self.tag
+        }
+
+    @classmethod
+    def Restore_fromParams(cls, params):
+        return cls(**params)
+
     def calc_I(self,V):
         return -self.I0*np.exp((-V-self.V_shift)/(self.n*self.VT))
     def calc_dI_dV(self,V):
@@ -318,6 +408,28 @@ class CircuitGroup(CircuitComponent):
         self.operating_point = None #V,I
         self.aux = {}
         self.is_circuit_group = True
+
+    def save_toParams(self):
+        out = {}
+        out_sub = out.setdefault("subgroups", [])
+        for element in self.subgroups:
+            out_sub.append([element.__class__.__name__, element.save_toParams()])
+        out["aux"] = self.aux
+        out["connection"] = self.connection
+        return out
+
+    @classmethod
+    def Restore_fromParams(cls, params):
+        subgroups = []
+        for sub_param in params["subgroups"]:
+            element_class = ALL_ELEMENTS[sub_param[0]]
+            if isinstance(element_class, list):
+                element_class = element_class[0]
+            element = element_class.Restore_fromParams(sub_param[1])
+            subgroups.append(element)
+        out = cls(subgroups=subgroups, connection=params["connection"])
+        out.aux = params["aux"]
+        return out
 
     def add_element(self,element):
         self.subgroups.append(element)

@@ -50,6 +50,21 @@ class Intrinsic_Si_diode(ForwardDiode):
         self.n = 0.0
         self.V_shift = 0.0
         self.area = area
+
+    def save_toParams(self):
+        return {
+            "base_thickness": self.base_thickness,
+            "base_type": self.base_type,
+            "base_doping": self.base_doping,
+            "area": self.area,
+            "temperature": self.temperature,
+            "tag": self.tag
+        }
+
+    @classmethod
+    def Restore_fromParams(cls, params):
+        return cls(**params)
+
     def __str__(self):
         return "Si Intrinsic Diode"
     def get_value_text(self):
@@ -146,6 +161,43 @@ class Cell(CircuitGroup):
         self.Suns = Suns
         self.get_branches()
         self.photon_coupling_diodes = self.findElementType(PhotonCouplingDiode)
+
+    def save_toParams(self):
+        out = {}
+        out_sub = out.setdefault("components", [])
+        for element in self.subgroups:
+            out_sub.append([element.__class__.__name__, element.save_toParams()])
+        out["connection"] = self.connection
+        out["area"] = self.area
+        out["shape"] = self.shape
+        out["temperature"] = self.temperature
+        out["Suns"] = self.Suns
+        out["aux"] = self.aux
+        if "degradation_mode" in self.aux:
+            out["aux"]["degradation_mode"] = out["aux"]["degradation_mode"].save_toParams()
+        if hasattr(self, "degradation_I_internal_V_tables"):
+            out["degradation_I_internal_V_tables"] = self.degradation_I_internal_V_tables
+        return out
+
+    @classmethod
+    def Restore_fromParams(cls, params):
+        components = []
+        for sub_param in params["components"]:
+            element_class = ALL_ELEMENTS[sub_param[0]]
+            element = element_class.Restore_fromParams(sub_param[1])
+            components.append(element)
+        out = cls(components=components,
+                  connection=params["connection"],
+                  area=params["area"],
+                  shape=params["shape"],
+                  temperature=params["temperature"],
+                  Suns=params["Suns"])
+        out.aux = params["aux"]
+        if "DegradationMode" in params["aux"]:
+            degradation_class = ALL_ELEMENTS["DegradationMode"]
+            out.aux["degradation_mode"] = degradation_class.Restore_fromParams(out.aux["degradation_mode"])
+        out.degradation_I_internal_V_tables = params["degradation_I_internal_V_tables"]
+        return out
 
     def get_branches(self):
         if self.connection=="series":
